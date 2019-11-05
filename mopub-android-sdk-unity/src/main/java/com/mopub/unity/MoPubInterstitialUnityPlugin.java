@@ -62,7 +62,8 @@ public class MoPubInterstitialUnityPlugin extends MoPubUnityPlugin
      * Check if the interstitial ad has finished loading.
      */
     public boolean isReady() {
-        return mMoPubInterstitial.isReady();
+        // TODO(ADF-4411): Replace this check with 3-layer validation in MoPub API.
+        return mMoPubInterstitial != null && mMoPubInterstitial.isReady();
     }
 
 
@@ -82,7 +83,12 @@ public class MoPubInterstitialUnityPlugin extends MoPubUnityPlugin
      * Destroy the interstitial ad.
      */
     public void destroy() {
-        mMoPubInterstitial.destroy();
+        runSafelyOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                mMoPubInterstitial.destroy();
+            }
+        });
     }
 
 

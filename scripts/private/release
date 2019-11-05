@@ -1,0 +1,386 @@
+#!/usr/bin/env bash
+my_dir="$(dirname $0)"
+source "$my_dir/../print_helpers.sh"
+source "$my_dir/../validate.sh"
+
+# Release process based on the doc: https://docs.google.com/document/d/1jQXQyxIytnSDyy_4hjBu4ph7U7gab2gFpHEsin4eZvo/edit#
+
+# Prerequisite:
+# - update README/CHANGELOG
+# - switch to branch that is the base of this release (e.g.: master for regular release, or release/x.y.z for hotfix)
+# - have run One-time setup for Create RC
+# - have run Create RC for Promote RC
+# - have a FIREBASE_TOKEN set
+# - NOT have the sample app project open in Unity
+
+# Example usage:
+# $ ./scripts/private/release setup
+
+# Arguments:
+# - version number
+# - subcommand:
+# -- One-time setup
+# -- Update submodules
+# -- Clean submodules
+# -- Update Firebase (staging or prod)
+# -- Create RC
+# -- Promote RC
+# -- Update master
+# -- any other flags:
+# --- dry run
+# --- force (ignore existing RC)
+
+
+VERSION_FORMAT='[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}'
+PUBLIC_REMOTE=public
+PUBLIC_MASTER=published
+
+# =================
+# Helper functions
+# =================
+
+function print_usage {
+  printf "usage: release <command> [<options>] [<version>]
+  commands:
+\tsetup
+\t\tone-time setup to configure published branch
+\tupdate-sub
+\t\tupdate all submodules to latest remote SHAs
+\tclean-sub
+\t\trevert all submodule states to HEAD
+\tcreate-rc [-i|--internal|-e|--external] [<version>]
+\t\tcreates and pushes release candidate branch from internal (default) or external submodules, and updates firebase staging
+\tupdate-rc [-i|--internal|-e|--external] [<version>]
+\t\tswitches to release candidate branch and performs create-rc operations again (expect pushing)
+\tpush-rc [<version>]
+\t\tpushes desired release candidate to firebase and remote origin
+\tpromote-rc <version>
+\t\tcreates release tag and publishes release candidate
+\tupdate-master <version>
+\t\tmerge release changes back onto private master
+\tupdate-fire [-s|--staging|-p|--prod]
+\t\tupdate firebase staging (default) or production with latest versions and package
+\thelp
+\t\tshow usage
+"
+}
+
+function terminate_with_usage {
+  print_red_line "$1"
+  print_usage
+  exit 2
+}
+
+function validate_command {
+  VALID_COMMANDS=( "setup" "update-sub" "clean-sub" "update-fire" "create-rc" "update-rc" "push-rc" "promote-rc" "update-master" "help")
+  if [[ ! "${VALID_COMMANDS[@]}" =~ "${COMMAND}" ]]; then
+    terminate_with_usage "invalid command: $COMMAND"
+  fi
+}
+
+function validate_version {
+  echo $VERSION | grep -E -q '^'$VERSION_FORMAT'$' \
+    || terminate_with_usage "command $COMMAND requires a version in the format $VERSION_FORMAT"
+}
+
+function validate_arguments {
+  local has_arg=$INTERNAL||$EXTERNAL||$STAGING||$PRODUCTION
+  local commands_with_args=( "update-fire" "create-rc" "update-rc" )
+  if [[ $has_arg && ! "${commands_with_args[@]}" =~ "${COMMAND}" ]]; then
+    terminate_with_usage "command takes no arguments: $COMMAND"
+  fi
+  ARGS=( $INTERNAL $EXTERNAL $STAGING $PRODUCTION )
+  local arg_set=false
+  for ARG in "${ARGS[@]}"
+  do
+    if [ $ARG == true ]; then
+      if [ $arg_set == true ]; then
+        terminate_with_usage "cannot pass more than one argument"
+      else
+        arg_set=true
+      fi
+    fi
+  done
+}
+
+function update_version_in_files {
+  print_blue_line "Updating version in files (if necessary)..."
+  sed -i "" -e "/ *s.version *=/s/=.*/= '$VERSION'/" unity-sample-app/Assets/MoPub/Plugins/iOS/MoPub-SDK-Plugin.podspec
+  sed -i "" -e "/project.version *=/s/=.*/= '$VERSION'/" mopub-android-sdk-unity/build.gradle
+  sed -i "" -e "/ *public const string MoPubSdkVersion *=/s/=.*/= \"$VERSION\";/" unity-sample-app/Assets/MoPub/Scripts/MoPub.cs
+  sed -i "" -Ee "/ *iOS: $VERSION_FORMAT/s/:.*/: $VERSION/" unity-sample-app/ProjectSettings/ProjectSettings.asset
+  sed -i "" -Ee "/ *bundleVersion: $VERSION_FORMAT/s/:.*/: $VERSION/" unity-sample-app/ProjectSettings/ProjectSettings.asset
+}
+
+function clear_sample_app_symbols {
+  print_blue_line "Clearing sample app symbols..."
+  local project_settings="unity-sample-app/ProjectSettings/ProjectSettings.asset"
+  sed -i "" -e "s/    4: .*mopub_.*/    4: /1" $project_settings
+  sed -i "" -e "s/    7: .*mopub_.*/    7: /1" $project_settings
+}
+
+function remove_todos {
+  print_blue_line "Removing TODOs from C# files (if necessary)..."
+  local any_todo_match=".*\/\/ *TODO.*"
+  local todo_line_match="^ *\/\/ TODO.*"
+  local trailing_todo_match=" *\/\/ TODO.*/"
+  grep -rl -e "$any_todo_match" ./unity-sample-app/Assets/MoPub ./mopub-android-sdk-unity/src | \
+    xargs sed -i "" -e "/$todo_line_match/d" -e "s/$trailing_todo_match/g"
+}
+
+function update_xml_dependencies {
+  local which_sdks=$1
+  local xmlfile=unity-sample-app/Assets/MoPub/Scripts/Editor/MoPubDependencies.xml
+  if [ $which_sdks = internal ]; then
+    # Point to private git repo
+    sed -i "" -e "/iosPod name.*mopub-ios-sdk/s,version=\".*\",path=\"../mopub-ios\"," $xmlfile
+  else
+    # Point to public sdk version on cocoapods.org
+    sed -i "" -e "/iosPod name.*mopub-ios-sdk/s/path=\".*\"/version=\"$VERSION\"/" $xmlfile
+  fi
+}
+
+function cmd_setup {
+  # Add a new remote called "public" pointing at the public repo
+  git remote add $PUBLIC_REMOTE https://github.com/mopub/mopub-unity-sdk.git
+
+  # Pull all history of the public repo into your private one, alongside the existing private history
+  # NOTE: Twitter’s mde git doesn’t understand the --allow-unrelated-histories flag, so use /usr/bin/git for this command
+  /usr/bin/git pull --all --allow-unrelated-histories
+
+  # Make a local branch called "published" that tracks the remote master of the public repo
+  git branch -f -t $PUBLIC_MASTER $PUBLIC_REMOTE/master
+
+  # Ensure that ‘git push public published‘ goes back to the public master as expected
+  git config remote.$PUBLIC_REMOTE.push refs/heads/$PUBLIC_MASTER:refs/heads/master
+
+  # Initialize and clone submodules, if applicable
+  git submodule init
+  git submodule update --recursive
+}
+
+function cmd_update_sub {
+  print_blue_line "Updating submodules..."
+  git submodule update --recursive --remote
+}
+
+function cmd_clean_sub {
+  git --git-dir mopub-android/.git clean -df
+  git --git-dir mopub-ios/.git clean -df
+  git --git-dir mopub-android-sdk/.git clean -df
+  git --git-dir mopub-ios-sdk/.git clean -df
+  git submodule update --recursive --force
+}
+
+function cmd_create_rc {
+  local which_sdks="internal"
+  if [[ $EXTERNAL == true ]]; then
+    which_sdks="external"
+  fi
+  print_blue_line "Creating RC branch for version $VERSION with $which_sdks SDKs..."
+  git checkout -B release/$VERSION
+  validate
+
+  # Make sure we have the latest state of the master branch from the public repo, and reset the RC branch to it.
+  git fetch $PUBLIC_REMOTE
+  git reset $PUBLIC_REMOTE/master
+  validate
+
+  cmd_update_rc
+  cmd_push_rc
+}
+
+function cmd_update_rc {
+  print_blue_line "Updating RC branch for version $VERSION..."
+  git checkout release/$VERSION
+  validate "seems branch release/$VERSION does not exist; please run create-rc first!"
+
+  if [[ $EXTERNAL == true ]]; then
+    print_blue_line "Switching to external SDKs..."
+    git checkout $PUBLIC_REMOTE/master -- .gitmodules
+    local already_public=`grep mopub-android .gitignore; echo $?`
+    if [[ already_public == 1 ]]; then
+      cat .gitignore-public-entries >> .gitignore
+    fi
+    git rm --cached mopub-android
+    git rm --cached mopub-ios
+    update_xml_dependencies external
+    validate
+    clear_sample_app_symbols
+    validate
+  elif [[ $INTERNAL == true ]]; then
+    print_blue_line "Switching to internal SDKs..."
+    git checkout master -- .gitmodules .gitignore
+    update_xml_dependencies internal
+    validate
+    # NOTE: app symbols will NOT be restored
+  fi
+
+  update_version_in_files
+  remove_todos
+  cmd_build
+  validate
+}
+
+function cmd_push_rc {
+  print_blue_line "Committing and pushing to RC branch..."
+
+  # remove (from git) any tracked files (from master) that should be ignored in the RC (e.g., scripts/private)
+  git ls-files -z --ignored --exclude-standard | xargs -0 git rm -r --cached
+
+  git add -A
+  git commit -m "Release $VERSION Candidate"
+  validate
+
+  git push -u origin release/$VERSION
+  validate
+  cmd_update_fire
+}
+
+function cmd_build {
+  # First make sure the submodules are up to date.
+  cmd_clean_sub
+  cmd_update_sub
+
+  print_blue_line "Building project..."
+  local internal_sdk=true
+  if [[ $EXTERNAL == true ]]; then
+    internal_sdk=false
+  fi
+  INTERNAL_SDK=$internal_sdk $my_dir/../build.sh
+}
+
+function cmd_promote_rc {
+  # Fetch the latest state of the public repo, then force the published branch to mirror the public master branch.
+  git fetch $PUBLIC_REMOTE
+  git checkout -t -B $PUBLIC_MASTER $PUBLIC_REMOTE/master
+  validate
+
+  # Force the working directory and index to match the RC branch.  Then move the branch tag back
+  # to public master, leaving all changes in "git added" status.
+  git reset --hard release/$VERSION
+  git reset --soft $PUBLIC_REMOTE/master
+  validate 
+
+  # Commit everything, tag, and push to the public repo.
+  git commit -m "Release $VERSION"
+  git tag v$VERSION
+  git push $PUBLIC_REMOTE $PUBLIC_MASTER v$VERSION
+  validate
+
+  # Update the prod firebase.
+  cmd_update_fire true
+}
+
+function cmd_update_master {
+  git checkout master
+  validate
+  git merge release/$VERSION --squash
+  validate
+  git reset HEAD
+  git checkout -- .gitignore .gitmodules
+  print_green_line "Merged changes from release/$VERSION.  Be sure to verify the changes before committing."
+}
+
+function cmd_update_fire {
+  if [ -z "$FIREBASE_TOKEN" ]; then
+    terminate_with_usage "\$FIREBASE_TOKEN environment variable not set! See scripts/private/README.md for details."
+  fi
+
+  if [ -z "$VERSION" ]; then
+    terminate_with_usage "No version provided!"
+  fi
+
+  firebase_project="mopub-mediation-staging"
+  stage_or_prod="_staging_"
+  prod=$1
+  if [ "$prod" = true ]; then
+    firebase_project="mopub-mediation"
+    stage_or_prod="~ PRODUCTION ~"
+  fi
+
+  print_blue_line "Updating $stage_or_prod Firebase JSON..."
+  firebase database:set --confirm /mopubBaseConfig/Unity/version --data "\"$VERSION\"" \
+      --project $firebase_project --token $FIREBASE_TOKEN
+  validate
+  print_green_line "Updated $stage_or_prod JSON in Firebase project $firebase_project"
+
+  # Test query
+  # firebase database:get "/mopubBaseConfig/Unity/version" --project mopub-mediation --token $FIREBASE_TOKEN
+
+  print_blue_line "Updating $stage_or_prod Firebase storage..."
+  gsutil_cmd="gsutil cp mopub-unity-plugin/MoPubUnity.unitypackage gs://$firebase_project.appspot.com/"
+  $gsutil_cmd
+  if [[ $? -ne 0 ]]; then
+    print_red_line "FAILED updating storage in Firebase project $firebase_project"
+    print_red_line "ERROR: Google Cloud SDK might not be installed or initialized; please follow instructions at: https://cloud.google.com/sdk/docs/"
+  else
+    print_green_line "Updated $stage_or_prod storage in Firebase project $firebase_project"
+  fi
+
+}
+
+function cmd_help {
+  print_usage
+  exit 0
+}
+
+# =================
+# Script flow
+# =================
+
+# Parse command
+COMMAND=$1
+shift
+
+# Parse options
+while getopts iesp-: arg; do
+  case $arg in
+    i )  INTERNAL=true ; ARG_LABEL="internal" ;;
+    e )  EXTERNAL=true ; ARG_LABEL="external" ;;
+    s )  STAGING=true ; ARG_LABEL="staging" ;;
+    p )  PRODUCTION=true ; ARG_LABEL="production" ;;
+    - )  "${OPTARG#*=}"
+         case $OPTARG in
+           internal   )  INTERNAL=true ; ARG_LABEL="internal" ;;
+           external   )  EXTERNAL=true ; ARG_LABEL="external" ;;
+           staging    )  STAGING=true ; ARG_LABEL="staging" ;;
+           production )  PRODUCTION=true ; ARG_LABEL="production" ;;
+           '' )        break ;; # "--" terminates argument processing
+           * )         terminate_with_usage "illegal option --$OPTARG" ;;
+         esac ;;
+    \? )   ;;  # getopts already reported the illegal option
+  esac
+done
+shift $((OPTIND-1)) # remove parsed options and args from $@ list
+
+# Parse and validate version
+COMMANDS_WITH_VERSION=( "create-rc" "update-rc" "push-rc" "promote-rc" "update-master" "update-fire" )
+if [[ "${COMMANDS_WITH_VERSION[@]}" =~ "${COMMAND}" ]]; then
+  if [ -z $1 ]; then
+    current_branch=`git rev-parse --abbrev-ref HEAD`
+    VERSION=${current_branch#*/}
+  else
+    VERSION=$1
+  fi
+  validate_version
+fi
+
+validate_command
+validate_arguments
+
+# Execute desired command
+print_command_starting $COMMAND $ARG_LABEL $VERSION
+case "$COMMAND" in
+  setup ) cmd_setup;;
+  update-sub ) cmd_update_sub;;
+  clean-sub ) cmd_clean_sub;;
+  create-rc ) cmd_create_rc;;
+  update-rc ) cmd_update_rc;;
+  push-rc ) cmd_push_rc;;
+  promote-rc ) cmd_promote_rc;;
+  update-master ) cmd_update_master;;
+  update-fire ) cmd_update_fire;;
+  help ) cmd_help;;
+esac
+print_command_finished $COMMAND

@@ -1,3 +1,15 @@
+## Version 5.10.0 (November 4, 2019)
+- **Features**
+  - The MoPub Unity Plugin now includes version 5.10.0 of the MoPub Android and iOS SDKs.
+  - Upgraded Android Gradle plugin dependency to 3.5.1.
+  - Rewarded Videos failing to show now trigger an `OnRewardedVideoFailedToPlayEvent` with error code `VIDEO_NOT_AVAILABLE`.
+- **Bug Fixes**
+  - Guarded against premature calls to `IsInterstitialReady`.
+  - Prevent polling `IsInterstitialReady` from spamming the Editor console.
+  - Removed deprecated `Android only` comments.
+  - Prevent destroying intersitials from causing exceptions.
+  - Prevent MoPub Sample app icon from overriding publisher app icon.
+
 ## Version 5.9.0 (September 17, 2019)
 - **Features**
   - The MoPub Unity Plugin now includes version 5.9.0 of the MoPub Android and iOS SDKs.

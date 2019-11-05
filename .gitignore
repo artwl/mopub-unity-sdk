@@ -5,9 +5,12 @@
 # release scripts bytecode
 *.pyc
 
-# extra logging from build and export scripts
+# extra logging from export script and test runs
 scripts/*log.txt
+scripts/test*.*
 
+# MacOS meta files
+*.DS_Store
 # internal SDK submodules
 mopub-android/
 mopub-ios/

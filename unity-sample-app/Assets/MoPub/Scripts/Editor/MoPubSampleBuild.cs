@@ -16,11 +16,25 @@ class MoPubSampleBuild
     static void PerformBuild ()
     {
         var platform = EditorUserBuildSettings.activeBuildTarget;
+        var isAndroidBuild = platform.ToString() == "Android";
         var sdkVersion = MoPub.MoPubSdkVersion;
         var args = Environment.GetCommandLineArgs();
         var lastCommit = args.First(a => a.StartsWith(LAST_COMMIT_PREFIX)).Substring(LAST_COMMIT_PREFIX.Length);
         var filename = string.Format("MoPubSampleUnity{0}_{1}+{2}{3}", platform, sdkVersion, lastCommit,
-                                     platform.ToString() == "Android" ? ".apk" : "");
+                                     isAndroidBuild ? ".apk" : "");
+
+        // Needed to generate xcworkspace for iOS builds (which is needed for XCode archival & export)
+        EditorUserBuildSettings.development = true;
+        EditorUserBuildSettings.iOSBuildConfigType = iOSBuildType.Debug;
+
+        Debug.Log("EditorUserBuildSettings.activeBuildTarget: " + EditorUserBuildSettings.activeBuildTarget);
+        Debug.Log("EditorUserBuildSettings.selectedBuildTargetGroup: " + EditorUserBuildSettings.selectedBuildTargetGroup);
+        Debug.Log("EditorUserBuildSettings.activeBuildTarget: " + EditorUserBuildSettings.activeBuildTarget);
+        Debug.Log("EditorUserBuildSettings.selectedBuildTargetGroup: " + EditorUserBuildSettings.selectedBuildTargetGroup);
+        Debug.Log("EditorUserBuildSettings.development: " + EditorUserBuildSettings.development);
+        Debug.Log("EditorUserBuildSettings.allowDebugging: " + EditorUserBuildSettings.allowDebugging);
+        Debug.Log("EditorUserBuildSettings.buildAppBundle: " + EditorUserBuildSettings.buildAppBundle);
+        Debug.Log("EditorUserBuildSettings.iOSBuildConfigType: " + EditorUserBuildSettings.iOSBuildConfigType);
 
         BuildPipeline.BuildPlayer(new BuildPlayerOptions {
             scenes = EditorBuildSettings.scenes.Select(s => s.path).ToArray(),

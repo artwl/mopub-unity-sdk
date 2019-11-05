@@ -8,6 +8,7 @@ import androidx.annotation.Nullable;
 import com.mopub.common.MoPubReward;
 import com.mopub.common.Preconditions;
 import com.mopub.common.logging.MoPubLog;
+import com.mopub.mobileads.MoPubErrorCode;
 import com.mopub.mobileads.MoPubRewardedVideoManager;
 import com.mopub.mobileads.MoPubRewardedVideos;
 
@@ -114,6 +115,8 @@ public class MoPubRewardedVideoUnityPlugin extends MoPubUnityPlugin {
                 if (!MoPubRewardedVideos.hasRewardedVideo(mAdUnitId)) {
                     MoPubLog.log(AdLogEvent.CUSTOM, String.format(Locale.US,
                             "No rewarded ad is available at this time."));
+                    MoPubRewardedVideoUnityPluginManager.getInstance().onRewardedVideoPlaybackError(
+                            mAdUnitId, MoPubErrorCode.VIDEO_NOT_AVAILABLE);
                     return;
                 }
 

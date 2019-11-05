@@ -79,7 +79,7 @@ internal class MoPubUnityEditorAdUnit : MoPubAdUnit
 
     internal override bool IsInterstitialReady()
     {
-        return CheckAdUnitRequested();
+        return _requested;
     }
 
     internal override void ShowInterstitialAd()

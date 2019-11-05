@@ -1,0 +1,6 @@
+# internal SDK submodules
+mopub-android/
+mopub-ios/
+
+# internal scripts
+scripts/private/

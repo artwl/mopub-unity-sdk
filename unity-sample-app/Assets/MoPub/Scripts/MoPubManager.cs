@@ -29,13 +29,13 @@ public class MoPubManager : MonoBehaviour
     // Fired when an ad fails to load for the banner
     public static event Action<string, string> OnAdFailedEvent;
 
-    // Android only. Fired when a banner ad is clicked
+    // Fired when a banner ad is clicked
     public static event Action<string> OnAdClickedEvent;
 
-    // Android only. Fired when a banner ad expands to encompass a greater portion of the screen
+    // Fired when a banner ad expands to encompass a greater portion of the screen
     public static event Action<string> OnAdExpandedEvent;
 
-    // Android only. Fired when a banner ad collapses back to its initial size
+    // Fired when a banner ad collapses back to its initial size
     public static event Action<string> OnAdCollapsedEvent;
 
     // Fired when an interstitial ad is loaded and ready to be shown
@@ -50,10 +50,10 @@ public class MoPubManager : MonoBehaviour
     // Fired when an interstitial ad expires
     public static event Action<string> OnInterstitialExpiredEvent;
 
-    // Android only. Fired when an interstitial ad is displayed
+    // Fired when an interstitial ad is displayed
     public static event Action<string> OnInterstitialShownEvent;
 
-    // Android only. Fired when an interstitial ad is clicked
+    // Fired when an interstitial ad is clicked
     public static event Action<string> OnInterstitialClickedEvent;
 
     // Fired when a rewarded video finishes loading and is ready to be displayed

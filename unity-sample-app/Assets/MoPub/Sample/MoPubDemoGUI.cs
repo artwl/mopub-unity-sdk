@@ -422,6 +422,13 @@ public class MoPubDemoGUI : MonoBehaviour
                     MoPub.ShowInterstitialAd(interstitialAdUnit);
                 }
 
+                GUI.enabled = _adUnitToLoadedMapping[interstitialAdUnit];
+                if (GUILayout.Button("Destroy")) {
+                    ClearStatusLabel();
+                    MoPub.DestroyInterstitialAd(interstitialAdUnit);
+                    _adUnitToLoadedMapping[interstitialAdUnit] = false;
+                }
+
                 GUI.enabled = true;
                 GUILayout.EndHorizontal();
             }

@@ -10,24 +10,21 @@ To get started visit our [Unity Engine Integration](https://www.mopub.com/resour
 
 To file an issue with our team please email [support@mopub.com](mailto:support@mopub.com).
 
-## New in This Version (5.9.0 - September 17, 2019)
+## New in This Version (5.10.0 - November 4, 2019)
 Please view the [MoPub Unity SDK changelog](https://github.com/mopub/mopub-unity-sdk/blob/master/CHANGELOG.md), [MoPub Android SDK changelog](https://github.com/mopub/mopub-android-sdk/blob/master/CHANGELOG.md), and [MoPub iOS SDK changelog](https://github.com/mopub/mopub-ios-sdk/blob/master/CHANGELOG.md) for a complete list of additions, fixes, and enhancements across releases and platforms.
 
 - **Features**
-  - The MoPub Unity Plugin now includes version 5.9.0 of the MoPub Android and iOS SDKs.
-  - Refactored SDK to clarify between publisher and internal APIs, in short:
-    - The entire Publisher API, along with its documentation, is now contained in the [MoPub class](https://github.com/mopub/mopub-unity-sdk/blob/master/unity-sample-app/Assets/MoPub/Scripts/MoPub.cs).
-    - Internal APIs (such as the `MoPubPlatformApi` and `MoPubAdUnit` classes along with their derived types) now have all their methods marked `internal`.
-    - *NOTE:* These changes are backwards-compatible, but if your integration contains calls to the internal class `MoPubBase`, simply replace those with calls to `MoPub`.
-  - Removed Network-specific activity declarations in Android manifest (since they are now included in their corresponding adapters).
-  - Migrated to Android X.
-  - Sample app is now scrollable when needed.
-  - Sample app on Android is now compatible with SSL Proxying.
+  - The MoPub Unity Plugin now includes version 5.10.0 of the MoPub Android and iOS SDKs.
+  - Upgraded Android Gradle plugin dependency to 3.5.1.
+  - Rewarded Videos failing to show now trigger an `OnRewardedVideoFailedToPlayEvent` with error code `VIDEO_NOT_AVAILABLE`.
 
 - **Bug Fixes**
-  - Fixed a bug in pixels to dips conversions.
-  - Guarded against null values in Impression Data.
-  - Logging from Android wrapper now uses `MoPubLog`.
+  - Guarded against premature calls to `IsInterstitialReady`.
+  - Prevent polling `IsInterstitialReady` from spamming the Editor console.
+  - Removed deprecated `Android only` comments.
+  - Prevent destroying intersitials from causing exceptions.
+  - Prevent MoPub Sample app icon from overriding publisher app icon.
+
 
 ## Upgrading to SDK 5.8
 

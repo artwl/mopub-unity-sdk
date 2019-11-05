@@ -19,11 +19,22 @@ print_export_starting
 # It also imports and includes the Google Play Services Resolver using the gvh_disable, per their README on github, to 
 # prevent a version clash in a pub's project when importing a newer version of it.
 
-echo -n "Exporting the MoPub Unity package... "
+# TODO (ADF-4383): Replace the res/ dir (and this workaround) with in-editor adaptive icons once
+# Unity 2018 is the minimum supported version.
+echo -e "Excluding Android resources to avoid overriding Publisher icon...\n"
+mv unity-sample-app/Assets/MoPub/Plugins/Android/MoPub.plugin/res* unity-sample-app/
+validate
+
 $UNITY_BIN -gvh_disable -projectPath $PROJECT_PATH -force-free -quit -batchmode -logFile $EXPORT_LOG \
            -importPackage $PROJECT_PATH/play-services-resolver-*.unitypackage \
-           -exportPackage $EXPORT_FOLDERS_MAIN $DEST_PACKAGE
-validate "Building the unity package has failed, please check $EXPORT_LOG\nMake sure Unity isn't running when invoking this script!"
-echo "done"
+           -exportPackage $EXPORT_FOLDERS_MAIN $DEST_PACKAGE >& /dev/null
+validate_without_exit "Building the unity package has failed, please check $EXPORT_LOG\nMake sure Unity isn't running when invoking this script!"
+
+echo -e "Cleaning any changes to PlayServicesResolver...\n"
+git checkout $PROJECT_PATH/Assets/PlayServicesResolver/Editor/
+
+echo -e "Putting Android resources back..."
+mv unity-sample-app/res* unity-sample-app/Assets/MoPub/Plugins/Android/MoPub.plugin/
+validate
 
 print_export_finished "$DEST_PACKAGE"
